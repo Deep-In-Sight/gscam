@@ -1,0 +1,16 @@
+<launch>
+  <arg name="FPS" default="30/1"/>
+  <arg name="PUBLISH_FRAME" default="false"/>
+
+  <node namespace="ecam_right" name="ecam56_2" pkg="gscam" exec="gscam_node" output="screen">
+    <param name="camera_name" value="ecam56_2"/>
+    <param name="camera_info_url" value="package://gscam/examples/uncalibrated_parameters.ini"/>
+    <param name="sync_sink" value="false"/>
+    <!-- Simplified pipeline to link nvarguscamerasrc directly to appsink -->
+    <param name="gscam_config" value="nvarguscamerasrc sensor-id=1 sensor-mode=0 ! video/x-raw(memory:NVMM),width=2432,height=2048,format=NV12 ! nvvidconv ! video/x-raw, width=720,height=606,format=NV12 ! videoconvert "/>
+    <param name="frame_id" value="/ecam56_2"/>
+    <param name="sync_sink" value="true"/>
+  </node>
+
+  <node if="$(var PUBLISH_FRAME)" name="ecam56_transform" pkg="tf2_ros" exec="static_transform_publisher" args="1 2 3 0 -3.141 0 /world /ecam56"/>
+</launch>

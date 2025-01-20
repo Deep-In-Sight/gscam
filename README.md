@@ -5,6 +5,17 @@ Lab](http://robotics.cs.brown.edu/) for broadcasting any
 [GStreamer](http://gstreamer.freedesktop.org) video stream via
 [image transport](https://index.ros.org/p/image_transport/).
 
+## Run 3 cameras
+`ros2 launch gscam component_pipeline_launch.py`
+
+## Topic tree
+`/camera/ecam_left/camera_info
+/camera/ecam_left/image_raw
+/camera/ecam_middle/camera_info
+/camera/ecam_middle/image_raw
+/camera/ecam_right/camera_info
+/camera/ecam_right/image_raw`
+
 ## GStreamer Library Support
 
 GSCam supports the following versions of ROS2 and GStreamer:

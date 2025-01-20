@@ -19,69 +19,70 @@ This launches the gscam and other nodes into a container so that they run in the
 """
 
 from launch import LaunchDescription
-from launch_ros.actions import ComposableNodeContainer
-from launch_ros.descriptions import ComposableNode
-
-
+from launch.actions import TimerAction
+from launch_ros.actions import Node
 def generate_launch_description():
-    gscam_config = 'videotestsrc is-live=true ! video/x-raw ! videoconvert'
-    camera_info_url = 'package://gscam/examples/uncalibrated_parameters.ini'
-
-    return LaunchDescription([ComposableNodeContainer(
-        name='gscam_container',
-        namespace='',
-        package='rclcpp_components',
-        executable='component_container',
-        composable_node_descriptions=[
-
-            # GSCam driver
-            ComposableNode(
-                package='gscam',
-                plugin='gscam::GSCam',
-                name='gscam_node',
-                parameters=[{
-                    'gscam_config': gscam_config,
-                    'camera_info_url': camera_info_url,
-                }],
-                # Future-proof: enable zero-copy IPC when it is available
-                # https://github.com/ros-perception/image_common/issues/212
-                extra_arguments=[{'use_intra_process_comms': True}],
-            ),
-
-            # Bayer color decoding
-            ComposableNode(
-                package='image_proc',
-                plugin='image_proc::DebayerNode',
-                name='debayer_node',
-                namespace='camera',
-                extra_arguments=[{'use_intra_process_comms': True}],
-            ),
-
-            # Mono rectification
-            ComposableNode(
-                package='image_proc',
-                plugin='image_proc::RectifyNode',
-                name='mono_rectify_node',
-                namespace='camera',
-                extra_arguments=[{'use_intra_process_comms': True}],
-                remappings=[
-                    ('image', 'image_mono'),
-                    ('image_rect', 'image_rect_mono'),
-                ],
-            ),
-
-            # Color rectification
-            ComposableNode(
-                package='image_proc',
-                plugin='image_proc::RectifyNode',
-                name='color_rectify_node',
-                namespace='camera',
-                extra_arguments=[{'use_intra_process_comms': True}],
-                remappings=[
-                    ('image', 'image_color'),
-                    ('image_rect', 'image_rect_color'),
-                ],
-            ),
-        ],
-        output='screen',
-    )])
+    return LaunchDescription([
+        # 첫 번째 카메라 노드 실행
+        Node(
+            package='gscam',
+            executable='gscam_node',
+            namespace='/camera/ecam_left',
+            name='gscam_driver',
+            parameters=[{
+                'use_gst_timestamps': True,
+                'camera_name': 'default',
+                #camera_info_url': 'package://gscam/examples/uncalibrated_parameters.ini',
+                # 'gscam_config': 'nvarguscamerasrc sensor-id=0 sensor-mode=3 ! video/x-raw(memory:NVMM),width=1920,height=1080,format=NV12 ! nvvidconv ! video/x-raw,format=NV12 ! videoconvert',
+                'gscam_config': 'nvarguscamerasrc sensor-id=0 sensor-mode=1 ! video/x-raw(memory:NVMM),width=2432,height=2048,format=NV12, framerate=10/1  ! nvvidconv ! video/x-raw, width=640, height=538, format=NV12 ! videoconvert',
+                #'gscam_config': 'nvarguscamerasrc sensor-id=0 sensor-mode=1 ! video/x-raw(memory:NVMM),width=2432,height=2048,format=NV12, framerate=10/1  ! nvvidconv ! video/x-raw, format=NV12 ! videoconvert',
+                'frame_id': '/base_link',
+                'sync_sink': False
+            }],
+            output='screen'
+        ),
+        # run second camera node after 2 seconds delay 2초 지연 후 두 번째 카메라 노드 실행
+        TimerAction(
+            period=2.0,
+            actions=[
+                Node(
+                    package='gscam',
+                    executable='gscam_node',
+                    namespace='/camera/ecam_middle',
+                    name='gscam_driver',
+                    parameters=[{
+                        'use_gst_timestamps': True,
+                        'camera_name': 'default',
+                        #'camera_info_url': 'package://gscam/examples/uncalibrated_parameters.ini',
+                        'gscam_config': 'nvarguscamerasrc sensor-id=2 sensor-mode=1 ! video/x-raw(memory:NVMM),width=2432,height=2048,format=NV12, framerate=10/1 ! nvvidconv ! video/x-raw, width=640, height=538,format=NV12 ! videoconvert',
+                        #'gscam_config': 'nvarguscamerasrc sensor-id=2 sensor-mode=1 ! video/x-raw(memory:NVMM),width=2432,height=2048,format=NV12, framerate=10/1  ! nvvidconv ! video/x-raw, format=NV12 ! videoconvert',
+                        'frame_id': '/base_link',
+                        'sync_sink': False
+                    }],
+                    output='screen'
+                )
+            ]
+        ),
+        # run second camera node after 2 more seconds delay 추가 2초 지연 후 세 번째 카메라 노드 실행
+        TimerAction(
+            period=4.0,
+            actions=[
+                Node(
+                    package='gscam',
+                    executable='gscam_node',
+                    namespace='/camera/ecam_right',
+                    name='gscam_driver',
+                    parameters=[{
+                        'use_gst_timestamps': True,
+                        'camera_name': 'default',
+                        # 'camera_info_url': 'package://gscam/examples/uncalibrated_parameters.ini',
+                        'gscam_config': 'nvarguscamerasrc sensor-id=1 sensor-mode=1 ! video/x-raw(memory:NVMM),width=2432,height=2048,format=NV12, framerate=10/1  ! nvvidconv ! video/x-raw, width=640, height=538, format=NV12 ! videoconvert',
+                        #'gscam_config': 'nvarguscamerasrc sensor-id=1 sensor-mode=1 ! video/x-raw(memory:NVMM),width=2432,height=2048,format=NV12, framerate=10/1  ! nvvidconv ! video/x-raw, format=NV12 ! videoconvert',
+                        'frame_id': '/base_link',
+                        'sync_sink': False
+                    }],
+                    output='screen'
+                )
+            ]
+        )
+    ])

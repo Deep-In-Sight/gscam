@@ -1,0 +1,46 @@
+<launch>
+  <arg name="FPS" default="30/1"/>
+  <arg name="PUBLISH_FRAME" default="false"/>
+
+  <!-- 0 : 2432 x 2048 @ 12bpp , 1 : 2432 x 2048 @ 10bpp , 2 : 1920 x 1080 @ 12bpp , 3 : 1920 x 1080 @ 10bpp -->
+  <!-- 4 : 1280 x 720 @ 12bpp , 5 : 1280 x 720 @ 10bpp , 6 : 640 x 480 @ 12bpp , 7 : 640 x 480 @ 10bpp -->
+
+  <!-- Construct the v4l2src format config -->
+
+  <group>
+    <node namespace="ecam_left" name="gscam_driver" pkg="gscam" exec="gscam_node" output="screen">
+      <param name="camera_name" value="default"/>
+      <!-- <param name="camera_info_url" value="package://gscam/examples/ecam56.ini"/> -->
+      <param name="camera_info_url" value="package://gscam/examples/uncalibrated_parameters.ini"/>
+      <param name="gscam_config" 
+            value="nvarguscamerasrc sensor-id=0 sensor-mode=3 ! video/x-raw(memory:NVMM),width=1920,height=1080,format=NV12 ! nvvidconv ! video/x-raw,format=NV12 ! videoconvert" />
+
+      <param name="frame_id" value="/base_link"/>
+      <param name="sync_sink" value="true"/>
+    </node>
+
+    <node namespace="ecam_middle" name="gscam_driver" pkg="gscam" exec="gscam_node" output="screen">
+      <param name="camera_name" value="default"/>
+      <param name="camera_info_url" value="package://gscam/examples/uncalibrated_parameters.ini"/>
+      <param name="gscam_config" 
+      value="nvarguscamerasrc sensor-id=1 sensor-mode=3 ! video/x-raw(memory:NVMM),width=1920,height=1080,format=NV12 ! nvvidconv ! video/x-raw,format=NV12 ! videoconvert" />
+
+      <param name="frame_id" value="/base_link"/>
+      <param name="sync_sink" value="true"/>
+    </node>
+
+    <node namespace="ecam_right" name="gscam_driver" pkg="gscam" exec="gscam_node" output="screen">
+      <param name="camera_name" value="default"/>
+      <param name="camera_info_url" value="package://gscam/examples/uncalibrated_parameters.ini"/>
+      <param name="gscam_config" 
+      value="nvarguscamerasrc sensor-id=2 sensor-mode=3 ! video/x-raw(memory:NVMM),width=1920,height=1080,format=NV12 ! nvvidconv ! video/x-raw,format=NV12 ! videoconvert" />
+
+      <param name="frame_id" value="/base_link"/>
+      <param name="sync_sink" value="true"/>
+    </node>
+  </group>
+
+  <node if="$(var PUBLISH_FRAME)" name="ecam56_left_transform" pkg="tf2_ros" exec="static_transform_publisher" args="1 2 3 0 -3.141 0 /world /ecam_left"/>
+  <node if="$(var PUBLISH_FRAME)" name="ecam56_middle_transform" pkg="tf2_ros" exec="static_transform_publisher" args="1 2 3 0 -3.141 0 /world /ecam_middlle"/>
+  <node if="$(var PUBLISH_FRAME)" name="ecam56_right_transform" pkg="tf2_ros" exec="static_transform_publisher" args="1 2 3 0 -3.141 0 /world /ecam_right"/>
+</launch>

@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.5)
 
 project(gscam)
 
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
 # System Dependencies
 find_package(PkgConfig)
 
