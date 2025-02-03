@@ -51,11 +51,11 @@ private:
   void run();
 
   // General gstreamer configuration
-  std::string gsconfig_;
+  std::map<std::string, std::string> gsconfig_;
 
   // Gstreamer structures
-  GstElement * pipeline_;
-  GstElement * sink_;
+  std::map<std::string, GstElement*> pipelines;
+  std::map<std::string, GstElement*> sinks;
 
   // Appsink configuration
   bool sync_sink_;
@@ -65,7 +65,8 @@ private:
 
   // Camera publisher configuration
   std::string frame_id_;
-  int width_, height_;
+  std::map<std::string, int> widths;
+  std::map<std::string, int> heights;
   std::string image_encoding_;
   std::string camera_name_;
   std::string camera_info_url_;
@@ -83,6 +84,8 @@ private:
   // Poll gstreamer on a separate thread
   std::thread pipeline_thread_;
   std::atomic<bool> stop_signal_;
+
+  std::vector<std::string> camera_names = {"left", "middle", "right"};
 };
 
 }  // namespace gscam

@@ -34,14 +34,15 @@ extern "C" {
 
 #include "gscam/gscam.hpp"
 
+
 namespace gscam
 {
 
 GSCam::GSCam(const rclcpp::NodeOptions & options)
 : rclcpp::Node("gscam_publisher", options),
-  gsconfig_(""),
-  pipeline_(NULL),
-  sink_(NULL),
+  // gsconfig_(""),
+  // pipeline_(NULL),
+  // sink_(NULL),
   camera_info_manager_(this),
   stop_signal_(false)
 {
@@ -65,34 +66,28 @@ bool GSCam::configure()
   bool gsconfig_rosparam_defined = false;
   char * gsconfig_env = NULL;
 
-  const auto gsconfig_rosparam = declare_parameter("gscam_config", "");
-  gsconfig_rosparam_defined = !gsconfig_rosparam.empty();
+  std::map<std::string, std::string> gsconfig_rosparam;
+  gsconfig_rosparam["left"] = declare_parameter("gscam_config_left", "");
+  gsconfig_rosparam["middle"] = declare_parameter("gscam_config_middle", "");
+  gsconfig_rosparam["right"] = declare_parameter("gscam_config_right", "");
+  gsconfig_rosparam_defined = !(gsconfig_rosparam["left"].empty() || gsconfig_rosparam["middle"].empty() || gsconfig_rosparam["right"].empty());
   gsconfig_env = getenv("GSCAM_CONFIG");
 
-  if (!gsconfig_env && !gsconfig_rosparam_defined) {
-    RCLCPP_FATAL(
-      get_logger(),
-      "Problem getting GSCAM_CONFIG environment variable and "
-      "'gscam_config' rosparam is not set. This is needed to set up a gstreamer pipeline.");
-    return false;
-  } else if (gsconfig_env && gsconfig_rosparam_defined) {
-    RCLCPP_FATAL(
-      get_logger(),
-      "Both GSCAM_CONFIG environment variable and 'gscam_config' rosparam are set. "
-      "Please only define one.");
-    return false;
-  } else if (gsconfig_env) {
-    gsconfig_ = gsconfig_env;
+  if (gsconfig_rosparam_defined == false) {
     RCLCPP_INFO_STREAM(
       get_logger(),
-      "Using gstreamer config from env: \"" << gsconfig_env << "\"");
-  } else if (gsconfig_rosparam_defined) {
-    gsconfig_ = gsconfig_rosparam;
-    RCLCPP_INFO_STREAM(
-      get_logger(),
-      "Using gstreamer config from rosparam: \"" << gsconfig_rosparam << "\"");
+      "Wrong gscam_config" << "\"");
+      return false;
   }
 
+    gsconfig_["left"] = gsconfig_rosparam["left"];
+    gsconfig_["middle"] = gsconfig_rosparam["middle"];
+    gsconfig_["right"] = gsconfig_rosparam["right"];
+    RCLCPP_INFO_STREAM(
+      get_logger(),
+      "Using gstreamer config from rosparam: \"" << gsconfig_rosparam["left"]
+      << "\n" << gsconfig_rosparam["middle"]
+      << "\n" << gsconfig_rosparam["right"] << "\"");
   // Get additional gscam configuration
   sync_sink_ = declare_parameter("sync_sink", true);
   preroll_ = declare_parameter("preroll", false);
@@ -150,84 +145,213 @@ bool GSCam::init_stream()
   RCLCPP_DEBUG_STREAM(get_logger(), "Gstreamer Version: " << gst_version_string() );
 
   GError * error = 0;  // Assignment to zero is a gst requirement
-
-  pipeline_ = gst_parse_launch(gsconfig_.c_str(), &error);
-  if (pipeline_ == NULL) {
+  pipelines["left"] = gst_parse_launch(gsconfig_["left"].c_str(), &error);
+  pipelines["middle"] = gst_parse_launch(gsconfig_["middle"].c_str(), &error);
+  pipelines["right"] = gst_parse_launch(gsconfig_["right"].c_str(), &error);
+  if (pipelines["left"] == NULL || pipelines["middle"] == NULL || pipelines["right"] == NULL) {
     RCLCPP_FATAL_STREAM(get_logger(), error->message);
     return false;
   }
 
   // Create RGB sink
-  sink_ = gst_element_factory_make("appsink", NULL);
-  GstCaps * caps = gst_app_sink_get_caps(GST_APP_SINK(sink_));
+  sinks["left"] = gst_element_factory_make("appsink", NULL);
+  sinks["middle"] = gst_element_factory_make("appsink", NULL);
+  sinks["right"] = gst_element_factory_make("appsink", NULL);
+  std::map<std::string, GstCaps *> caps;
+  caps["left"] = gst_app_sink_get_caps(GST_APP_SINK(sinks["left"]));
+  caps["middle"] = gst_app_sink_get_caps(GST_APP_SINK(sinks["middle"]));
+  caps["right"] = gst_app_sink_get_caps(GST_APP_SINK(sinks["right"]));
+
 
   // http://gstreamer.freedesktop.org/data/doc/gstreamer/head/pwg/html/section-types-definitions.html
   if (image_encoding_ == sensor_msgs::image_encodings::RGB8) {
-    caps = gst_caps_new_simple(
+    caps["left"] = gst_caps_new_simple(
       "video/x-raw",
       "format", G_TYPE_STRING, "RGB",
       NULL);
   } else if (image_encoding_ == sensor_msgs::image_encodings::MONO8) {
-    caps = gst_caps_new_simple(
+    caps["left"] = gst_caps_new_simple(
       "video/x-raw",
       "format", G_TYPE_STRING, "GRAY8",
       NULL);
   } else if (image_encoding_ == sensor_msgs::image_encodings::YUV422) {
-    caps = gst_caps_new_simple(
+    caps["left"] = gst_caps_new_simple(
       "video/x-raw",
       "format", G_TYPE_STRING, "UYVY",
       NULL);
   } else if (image_encoding_ == "jpeg") {
-    caps = gst_caps_new_simple("image/jpeg", NULL, NULL);
+    caps["left"] = gst_caps_new_simple("image/jpeg", NULL, NULL);
   }
 
-  gst_app_sink_set_caps(GST_APP_SINK(sink_), caps);
-  gst_caps_unref(caps);
+  if (image_encoding_ == sensor_msgs::image_encodings::RGB8) {
+    caps["middle"] = gst_caps_new_simple(
+      "video/x-raw",
+      "format", G_TYPE_STRING, "RGB",
+      NULL);
+  } else if (image_encoding_ == sensor_msgs::image_encodings::MONO8) {
+    caps["middle"] = gst_caps_new_simple(
+      "video/x-raw",
+      "format", G_TYPE_STRING, "GRAY8",
+      NULL);
+  } else if (image_encoding_ == sensor_msgs::image_encodings::YUV422) {
+    caps["middle"] = gst_caps_new_simple(
+      "video/x-raw",
+      "format", G_TYPE_STRING, "UYVY",
+      NULL);
+  } else if (image_encoding_ == "jpeg") {
+    caps["middle"] = gst_caps_new_simple("image/jpeg", NULL, NULL);
+  }
+
+  if (image_encoding_ == sensor_msgs::image_encodings::RGB8) {
+    caps["right"] = gst_caps_new_simple(
+      "video/x-raw",
+      "format", G_TYPE_STRING, "RGB",
+      NULL);
+  } else if (image_encoding_ == sensor_msgs::image_encodings::MONO8) {
+    caps["right"] = gst_caps_new_simple(
+      "video/x-raw",
+      "format", G_TYPE_STRING, "GRAY8",
+      NULL);
+  } else if (image_encoding_ == sensor_msgs::image_encodings::YUV422) {
+    caps["right"] = gst_caps_new_simple(
+      "video/x-raw",
+      "format", G_TYPE_STRING, "UYVY",
+      NULL);
+  } else if (image_encoding_ == "jpeg") {
+    caps["right"] = gst_caps_new_simple("image/jpeg", NULL, NULL);
+  }
+
+  gst_app_sink_set_caps(GST_APP_SINK(sinks["left"]), caps["left"]);
+  gst_caps_unref(caps["left"]);
+
+  gst_app_sink_set_caps(GST_APP_SINK(sinks["middle"]), caps["middle"]);
+  gst_caps_unref(caps["middle"]);
+
+  gst_app_sink_set_caps(GST_APP_SINK(sinks["right"]), caps["right"]);
+  gst_caps_unref(caps["right"]);
 
   // Set whether the sink should sync
   // Sometimes setting this to true can cause a large number of frames to be
   // dropped
   gst_base_sink_set_sync(
-    GST_BASE_SINK(sink_),
+    GST_BASE_SINK(sinks["left"]),
+    (sync_sink_) ? TRUE : FALSE);
+  gst_base_sink_set_sync(
+    GST_BASE_SINK(sinks["middle"]),
+    (sync_sink_) ? TRUE : FALSE);
+  gst_base_sink_set_sync(
+    GST_BASE_SINK(sinks["right"]),
     (sync_sink_) ? TRUE : FALSE);
 
-  if (GST_IS_PIPELINE(pipeline_)) {
-    GstPad * outpad = gst_bin_find_unlinked_pad(GST_BIN(pipeline_), GST_PAD_SRC);
-    g_assert(outpad);
+  
+  if (GST_IS_PIPELINE(pipelines["left"]) && GST_IS_PIPELINE(pipelines["middle"]) && GST_IS_PIPELINE(pipelines["right"])) {
+    // GstPad * outpad = gst_bin_find_unlinked_pad(GST_BIN(pipeline_), GST_PAD_SRC);
+    std::map<std::string, GstPad *> outpads;
+    outpads["left"] = gst_bin_find_unlinked_pad(GST_BIN(pipelines["left"]), GST_PAD_SRC);
+    outpads["middle"] = gst_bin_find_unlinked_pad(GST_BIN(pipelines["middle"]), GST_PAD_SRC);
+    outpads["right"] = gst_bin_find_unlinked_pad(GST_BIN(pipelines["right"]), GST_PAD_SRC);
+    g_assert(outpads["left"]);
+    g_assert(outpads["middle"]);
+    g_assert(outpads["right"]);
 
-    GstElement * outelement = gst_pad_get_parent_element(outpad);
-    g_assert(outelement);
-    gst_object_unref(outpad);
+    std::map<std::string, GstElement *> outelements;
+    outelements["left"] = gst_pad_get_parent_element(outpads["left"]);
+    outelements["middle"] = gst_pad_get_parent_element(outpads["middle"]);
+    outelements["right"] = gst_pad_get_parent_element(outpads["right"]);
 
-    if (!gst_bin_add(GST_BIN(pipeline_), sink_)) {
-      RCLCPP_FATAL(get_logger(), "gst_bin_add() failed");
-      gst_object_unref(outelement);
-      gst_object_unref(pipeline_);
+    g_assert(outelements["left"]);
+    g_assert(outelements["middle"]);
+    g_assert(outelements["right"]);
+
+    gst_object_unref(outpads["left"]);
+    gst_object_unref(outpads["middle"]);
+    gst_object_unref(outpads["right"]);
+
+    if(!gst_bin_add(GST_BIN(pipelines["left"]), sinks["left"]))
+    {
+      RCLCPP_FATAL(get_logger(), "gst_bin_add_left() failed");
+      gst_object_unref(outelements["left"]);
+      gst_object_unref(pipelines["left"]);
+      return false;
+    }
+    if(!gst_bin_add(GST_BIN(pipelines["middle"]), sinks["middle"]))
+    {
+      RCLCPP_FATAL(get_logger(), "gst_bin_add_middle() failed");
+      gst_object_unref(outelements["middle"]);
+      gst_object_unref(pipelines["middle"]);
+      return false;
+    }
+    if(!gst_bin_add(GST_BIN(pipelines["right"]), sinks["right"]))
+    {
+      RCLCPP_FATAL(get_logger(), "gst_bin_add_right() failed");
+      gst_object_unref(outelements["right"]);
+      gst_object_unref(pipelines["right"]);
       return false;
     }
 
-    if (!gst_element_link(outelement, sink_)) {
+    if (!gst_element_link(outelements["left"], sinks["left"])) {
       RCLCPP_FATAL(
-        get_logger(), "GStreamer: cannot link outelement(\"%s\") -> sink\n",
-        gst_element_get_name(outelement));
-      gst_object_unref(outelement);
-      gst_object_unref(pipeline_);
+        get_logger(), "GStreamer: cannot link outelement left(\"%s\") -> sink\n",
+        gst_element_get_name(outelements["left"]));
+      gst_object_unref(outelements["left"]);
+      gst_object_unref(pipelines["left"]);
+      return false;
+    }
+    if (!gst_element_link(outelements["middle"], sinks["middle"])) {
+      RCLCPP_FATAL(
+        get_logger(), "GStreamer: cannot link outelement middle(\"%s\") -> sink\n",
+        gst_element_get_name(outelements["middle"]));
+      gst_object_unref(outelements["middle"]);
+      gst_object_unref(pipelines["middle"]);
+      return false;
+    }
+    if (!gst_element_link(outelements["right"], sinks["right"])) {
+      RCLCPP_FATAL(
+        get_logger(), "GStreamer: cannot link outelement right(\"%s\") -> sink\n",
+        gst_element_get_name(outelements["right"]));
+      gst_object_unref(outelements["right"]);
+      gst_object_unref(pipelines["right"]);
       return false;
     }
 
-    gst_object_unref(outelement);
+    gst_object_unref(outelements["left"]);
+    gst_object_unref(outelements["middle"]);
+    gst_object_unref(outelements["right"]);
   } else {
-    GstElement * launchpipe = pipeline_;
-    pipeline_ = gst_pipeline_new(NULL);
-    g_assert(pipeline_);
+    std::map<std::string, GstElement *> launchpipes;
+    launchpipes["left"] = pipelines["left"];
+    launchpipes["middle"] = pipelines["middle"];
+    launchpipes["right"] = pipelines["right"];
 
-    gst_object_unparent(GST_OBJECT(launchpipe));
+    pipelines["left"] = gst_pipeline_new(NULL);
+    pipelines["middle"] = gst_pipeline_new(NULL);
+    pipelines["right"] = gst_pipeline_new(NULL);
 
-    gst_bin_add_many(GST_BIN(pipeline_), launchpipe, sink_, NULL);
+    g_assert(pipelines["left"]);
+    g_assert(pipelines["middle"]);
+    g_assert(pipelines["right"]);
 
-    if (!gst_element_link(launchpipe, sink_)) {
-      RCLCPP_FATAL(get_logger(), "GStreamer: cannot link launchpipe -> sink");
-      gst_object_unref(pipeline_);
+    gst_object_unparent(GST_OBJECT(launchpipes["left"]));
+    gst_object_unparent(GST_OBJECT(launchpipes["middle"]));
+    gst_object_unparent(GST_OBJECT(launchpipes["right"]));
+
+    gst_bin_add_many(GST_BIN(pipelines["left"]), launchpipes["left"], sinks["left"], NULL);
+    gst_bin_add_many(GST_BIN(pipelines["middle"]), launchpipes["middle"], sinks["middle"], NULL);
+    gst_bin_add_many(GST_BIN(pipelines["right"]), launchpipes["right"], sinks["right"], NULL);
+
+    if (!gst_element_link(launchpipes["left"], sinks["left"])) {
+      RCLCPP_FATAL(get_logger(), "GStreamer: cannot link launchpipe left -> sink");
+      gst_object_unref(pipelines["left"]);
+      return false;
+    }
+    if (!gst_element_link(launchpipes["middle"], sinks["middle"])) {
+      RCLCPP_FATAL(get_logger(), "GStreamer: cannot link launchpipe middle -> sink");
+      gst_object_unref(pipelines["middle"]);
+      return false;
+    }
+    if (!gst_element_link(launchpipes["right"], sinks["right"])) {
+      RCLCPP_FATAL(get_logger(), "GStreamer: cannot link launchpipe right -> sink");
+      gst_object_unref(pipelines["right"]);
       return false;
     }
   }
@@ -239,9 +363,23 @@ bool GSCam::init_stream()
   time_offset_ = now().nanoseconds() - GST_TIME_AS_NSECONDS(ct);
   RCLCPP_INFO(get_logger(), "Time offset: %.6f", rclcpp::Time(time_offset_).seconds());
 
-  gst_element_set_state(pipeline_, GST_STATE_PAUSED);
+  gst_element_set_state(pipelines["left"], GST_STATE_PAUSED);
+  gst_element_set_state(pipelines["middle"], GST_STATE_PAUSED);
+  gst_element_set_state(pipelines["right"], GST_STATE_PAUSED);
 
-  if (gst_element_get_state(pipeline_, NULL, NULL, -1) == GST_STATE_CHANGE_FAILURE) {
+  if (gst_element_get_state(pipelines["left"], NULL, NULL, -1) == GST_STATE_CHANGE_FAILURE) {
+    RCLCPP_FATAL(get_logger(), "Failed to PAUSE stream, check your gstreamer configuration.");
+    return false;
+  } else {
+    RCLCPP_DEBUG_STREAM(get_logger(), "Stream is PAUSED.");
+  }
+  if (gst_element_get_state(pipelines["middle"], NULL, NULL, -1) == GST_STATE_CHANGE_FAILURE) {
+    RCLCPP_FATAL(get_logger(), "Failed to PAUSE stream, check your gstreamer configuration.");
+    return false;
+  } else {
+    RCLCPP_DEBUG_STREAM(get_logger(), "Stream is PAUSED.");
+  }
+  if (gst_element_get_state(pipelines["right"], NULL, NULL, -1) == GST_STATE_CHANGE_FAILURE) {
     RCLCPP_FATAL(get_logger(), "Failed to PAUSE stream, check your gstreamer configuration.");
     return false;
   } else {
@@ -274,48 +412,136 @@ void GSCam::publish_stream()
 
     // The PAUSE, PLAY, PAUSE, PLAY cycle is to ensure proper pre-roll
     // I am told this is needed and am erring on the side of caution.
-    gst_element_set_state(pipeline_, GST_STATE_PLAYING);
-    if (gst_element_get_state(pipeline_, NULL, NULL, -1) == GST_STATE_CHANGE_FAILURE) {
-      RCLCPP_ERROR(get_logger(), "Failed to PLAY during preroll.");
+    gst_element_set_state(pipelines["left"], GST_STATE_PLAYING);
+    if (gst_element_get_state(pipelines["left"], NULL, NULL, -1) == GST_STATE_CHANGE_FAILURE) {
+      RCLCPP_ERROR(get_logger(), "Failed to PLAY left during preroll.");
       return;
     } else {
-      RCLCPP_DEBUG(get_logger(), "Stream is PLAYING in preroll.");
+      RCLCPP_DEBUG(get_logger(), "Left stream is PLAYING in preroll.");
     }
 
-    gst_element_set_state(pipeline_, GST_STATE_PAUSED);
-    if (gst_element_get_state(pipeline_, NULL, NULL, -1) == GST_STATE_CHANGE_FAILURE) {
-      RCLCPP_ERROR(get_logger(), "Failed to PAUSE.");
+    gst_element_set_state(pipelines["middle"], GST_STATE_PLAYING);
+    if (gst_element_get_state(pipelines["middle"], NULL, NULL, -1) == GST_STATE_CHANGE_FAILURE) {
+      RCLCPP_ERROR(get_logger(), "Failed to PLAY middle during preroll.");
       return;
     } else {
-      RCLCPP_INFO(get_logger(), "Stream is PAUSED in preroll.");
+      RCLCPP_DEBUG(get_logger(), "Middle stream is PLAYING in preroll.");
+    }
+
+    gst_element_set_state(pipelines["right"], GST_STATE_PLAYING);
+    if (gst_element_get_state(pipelines["right"], NULL, NULL, -1) == GST_STATE_CHANGE_FAILURE) {
+      RCLCPP_ERROR(get_logger(), "Failed to PLAY right during preroll.");
+      return;
+    } else {
+      RCLCPP_DEBUG(get_logger(), "Right stream is PLAYING in preroll.");
+    }
+
+    gst_element_set_state(pipelines["left"], GST_STATE_PAUSED);
+    if (gst_element_get_state(pipelines["left"], NULL, NULL, -1) == GST_STATE_CHANGE_FAILURE) {
+      RCLCPP_ERROR(get_logger(), "Failed to PAUSE left.");
+      return;
+    } else {
+      RCLCPP_INFO(get_logger(), "Left stream is PAUSED in preroll.");
+    }
+
+    gst_element_set_state(pipelines["middle"], GST_STATE_PAUSED);
+    if (gst_element_get_state(pipelines["middle"], NULL, NULL, -1) == GST_STATE_CHANGE_FAILURE) {
+      RCLCPP_ERROR(get_logger(), "Failed to PAUSE middle.");
+      return;
+    } else {
+      RCLCPP_INFO(get_logger(), "Middle stream is PAUSED in preroll.");
+    }
+
+    gst_element_set_state(pipelines["right"], GST_STATE_PAUSED);
+    if (gst_element_get_state(pipelines["right"], NULL, NULL, -1) == GST_STATE_CHANGE_FAILURE) {
+      RCLCPP_ERROR(get_logger(), "Failed to PAUSE right.");
+      return;
+    } else {
+      RCLCPP_INFO(get_logger(), "Right stream is PAUSED in preroll.");
     }
   }
 
-  if (gst_element_set_state(pipeline_, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
-    RCLCPP_ERROR(get_logger(), "Could not start stream!");
+  if (gst_element_set_state(pipelines["left"], GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
+    RCLCPP_ERROR(get_logger(), "Could not start left stream!");
     return;
   }
-  RCLCPP_INFO(get_logger(), "Started stream.");
+  RCLCPP_INFO(get_logger(), "Started left stream.");
 
+  if (gst_element_set_state(pipelines["middle"], GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
+    RCLCPP_ERROR(get_logger(), "Could not start middle stream!");
+    return;
+  }
+  RCLCPP_INFO(get_logger(), "Started middle stream.");
+
+  if (gst_element_set_state(pipelines["right"], GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
+    RCLCPP_ERROR(get_logger(), "Could not start right stream!");
+    return;
+  }
+  RCLCPP_INFO(get_logger(), "Started right stream.");
+  
+  std::map<std::string, GstSample *> samples;
+  std::map<std::string, GstBuffer *> bufs;
+  std::map<std::string, GstMemory *> memories;
+  std::map<std::string, GstMapInfo> infos;
+  std::map<std::string, gsize> buf_sizes;
+  std::map<std::string, guint8 *> buf_datas;
+  std::map<std::string, GstClockTime> bts;
+  std::map<std::string, GstPad *> pads;
+  std::map<std::string, GstCaps *> caps;
+  std::map<std::string, GstStructure *> structures;
   // Poll the data as fast a spossible
   while (!stop_signal_ && rclcpp::ok()) {
     // This should block until a new frame is awake, this way, we'll run at the
     // actual capture framerate of the device.
     // RCLCPP_DEBUG(get_logger(), "Getting data...");
-    GstSample * sample = gst_app_sink_pull_sample(GST_APP_SINK(sink_));
-    if (!sample) {
-      RCLCPP_ERROR(get_logger(), "Could not get gstreamer sample.");
+    
+    samples["left"] = gst_app_sink_pull_sample(GST_APP_SINK(sinks["left"]));
+    samples["middle"] = gst_app_sink_pull_sample(GST_APP_SINK(sinks["middle"]));
+    samples["right"] = gst_app_sink_pull_sample(GST_APP_SINK(sinks["right"]));
+    if (!samples["left"]) {
+      RCLCPP_ERROR(get_logger(), "Could not get left gstreamer sample.");
       break;
     }
-    GstBuffer * buf = gst_sample_get_buffer(sample);
-    GstMemory * memory = gst_buffer_get_memory(buf, 0);
-    GstMapInfo info;
+    if (!samples["middle"]) {
+      RCLCPP_ERROR(get_logger(), "Could not get middle gstreamer sample.");
+      break;
+    }
+    if (!samples["right"]) {
+      RCLCPP_ERROR(get_logger(), "Could not get right gstreamer sample.");
+      break;
+    }
+    bufs["left"] = gst_sample_get_buffer(samples["left"]);
+    bufs["middle"] = gst_sample_get_buffer(samples["middle"]);
+    bufs["right"] = gst_sample_get_buffer(samples["right"]);
+    memories["left"] = gst_buffer_get_memory(bufs["left"], 0);
+    memories["middle"] = gst_buffer_get_memory(bufs["middle"], 0);
+    memories["right"] = gst_buffer_get_memory(bufs["right"], 0);
 
-    gst_memory_map(memory, &info, GST_MAP_READ);
-    gsize & buf_size = info.size;
-    guint8 * & buf_data = info.data;
+    if(!gst_memory_map(memories["left"], &infos["left"], GST_MAP_READ))
+    {
+      RCLCPP_ERROR(get_logger(), "Could not map left memory.");
+      break;
+    }
+    if(!gst_memory_map(memories["middle"], &infos["middle"], GST_MAP_READ))
+    {
+      RCLCPP_ERROR(get_logger(), "Could not map middle memory.");
+      break;
+    }
+    if(!gst_memory_map(memories["right"], &infos["right"], GST_MAP_READ))
+    {
+      RCLCPP_ERROR(get_logger(), "Could not map right memory.");
+      break;
+    }
+    buf_sizes["left"] = infos["left"].size;
+    buf_sizes["middle"] = infos["middle"].size;
+    buf_sizes["right"] = infos["right"].size;
+    buf_datas["left"] = infos["left"].data;
+    buf_datas["middle"] = infos["middle"].data;
+    buf_datas["right"] = infos["right"].data;
 
-    GstClockTime bt = gst_element_get_base_time(pipeline_);
+    bts["left"] = gst_element_get_base_time(pipelines["left"]);
+    bts["middle"] = gst_element_get_base_time(pipelines["middle"]);
+    bts["right"] = gst_element_get_base_time(pipelines["right"]);
     // RCLCPP_INFO(
     //   get_logger(),
     //   "New buffer: timestamp %.6f %lu %lu %.3f",
@@ -334,84 +560,107 @@ void GSCam::publish_stream()
 #endif
 
     // Stop on end of stream
-    if (!buf) {
-      RCLCPP_INFO(get_logger(), "Stream ended.");
+    if (!bufs["left"]) {
+      RCLCPP_INFO(get_logger(), "Left stream ended.");
+      break;
+    }
+    if (!bufs["middle"]) {
+      RCLCPP_INFO(get_logger(), "Middle stream ended.");
+      break;
+    }
+    if (!bufs["right"]) {
+      RCLCPP_INFO(get_logger(), "Right stream ended.");
       break;
     }
 
     // RCLCPP_DEBUG(get_logger(), "Got data.");
 
     // Get the image width and height
-    GstPad * pad = gst_element_get_static_pad(sink_, "sink");
-    const GstCaps * caps = gst_pad_get_current_caps(pad);
-    GstStructure * structure = gst_caps_get_structure(caps, 0);
-    gst_structure_get_int(structure, "width", &width_);
-    gst_structure_get_int(structure, "height", &height_);
+    pads["left"] = gst_element_get_static_pad(sinks["left"], "sink");
+    pads["middle"] = gst_element_get_static_pad(sinks["middle"], "sink");
+    pads["right"] = gst_element_get_static_pad(sinks["right"], "sink");
+    caps["left"] = gst_pad_get_current_caps(pads["left"]);
+    caps["middle"] = gst_pad_get_current_caps(pads["middle"]);
+    caps["right"] = gst_pad_get_current_caps(pads["right"]);
+
+    structures["left"] = gst_caps_get_structure(caps["left"], 0);
+    structures["middle"] = gst_caps_get_structure(caps["middle"], 0);
+    structures["right"] = gst_caps_get_structure(caps["right"], 0);
+
+    gst_structure_get_int(structures["left"], "width", &widths["left"]);
+    gst_structure_get_int(structures["left"], "height", &heights["left"]);
+    gst_structure_get_int(structures["middle"], "width", &widths["middle"]);
+    gst_structure_get_int(structures["middle"], "height", &heights["middle"]);
+    gst_structure_get_int(structures["right"], "width", &widths["right"]);
+    gst_structure_get_int(structures["right"], "height", &heights["right"]);
 
     // Update header information
     sensor_msgs::msg::CameraInfo cur_cinfo = camera_info_manager_.getCameraInfo();
     sensor_msgs::msg::CameraInfo::SharedPtr cinfo;
     cinfo.reset(new sensor_msgs::msg::CameraInfo(cur_cinfo));
     if (use_gst_timestamps_) {
-      cinfo->header.stamp = rclcpp::Time(GST_TIME_AS_NSECONDS(buf->pts + bt) + time_offset_);
+      cinfo->header.stamp = rclcpp::Time(GST_TIME_AS_NSECONDS(bufs["left"]->pts + bts["left"]) + time_offset_); // set same timestamp for all streams
     } else {
       cinfo->header.stamp = now();
     }
     // RCLCPP_INFO(get_logger(), "Image time stamp: %.3f",cinfo->header.stamp.toSec());
     cinfo->header.frame_id = frame_id_;
-    if (image_encoding_ == "jpeg") {
-      sensor_msgs::msg::CompressedImage::SharedPtr img(new sensor_msgs::msg::CompressedImage());
-      img->header = cinfo->header;
-      img->format = "jpeg";
-      img->data.resize(buf_size);
-      std::copy(
-        buf_data, (buf_data) + (buf_size),
-        img->data.begin());
-      jpeg_pub_->publish(*img);
-      cinfo_pub_->publish(*cinfo);
-    } else {
-      // Complain if the returned buffer is smaller than we expect
-      const unsigned int expected_frame_size =
-        width_ * height_ * sensor_msgs::image_encodings::numChannels(image_encoding_);
+    for(const auto& camera_name : camera_names)
+    {
+      if (image_encoding_ == "jpeg") {
+        sensor_msgs::msg::CompressedImage::SharedPtr img(new sensor_msgs::msg::CompressedImage());
+        img->header = cinfo->header;
+        img->format = "jpeg";
+        img->data.resize(buf_sizes[camera_name]);
+        std::copy(
+          buf_datas[camera_name], (buf_datas[camera_name]) + (buf_sizes[camera_name]),
+          img->data.begin());
+        jpeg_pub_->publish(*img);
+        cinfo_pub_->publish(*cinfo);
+      } else {
+        // Complain if the returned buffer is smaller than we expect
+        const unsigned int expected_frame_size =
+          widths[camera_name] * heights[camera_name] * sensor_msgs::image_encodings::numChannels(image_encoding_);
 
-      if (buf_size < expected_frame_size) {
-        RCLCPP_WARN_STREAM(
-          get_logger(), "GStreamer image buffer underflow: Expected frame to be " <<
-            expected_frame_size << " bytes but got only " <<
-            buf_size << " bytes. (make sure frames are correctly encoded)");
+        if (buf_sizes[camera_name] < expected_frame_size) {
+          RCLCPP_WARN_STREAM(
+            get_logger(), "GStreamer image buffer underflow: Expected frame to be " <<
+              expected_frame_size << " bytes but got only " <<
+              buf_sizes[camera_name] << " bytes. (make sure frames are correctly encoded)");
+        }
+
+        // Construct Image message
+        sensor_msgs::msg::Image::SharedPtr img(new sensor_msgs::msg::Image());
+
+        img->header = cinfo->header;
+
+        // Image data and metadata
+        img->width = widths[camera_name];
+        img->height = heights[camera_name];
+        img->encoding = image_encoding_;
+        img->is_bigendian = false;
+        img->data.resize(expected_frame_size);
+
+        // Copy only the data we received
+        // Since we're publishing shared pointers, we need to copy the image so
+        // we can free the buffer allocated by gstreamer
+        img->step = widths[camera_name] * sensor_msgs::image_encodings::numChannels(image_encoding_);
+
+        std::copy(
+          buf_datas[camera_name],
+          (buf_datas[camera_name]) + (buf_sizes[camera_name]),
+          img->data.begin());
+
+        // Publish the image/info
+        camera_pub_.publish(img, cinfo);
       }
 
-      // Construct Image message
-      sensor_msgs::msg::Image::SharedPtr img(new sensor_msgs::msg::Image());
-
-      img->header = cinfo->header;
-
-      // Image data and metadata
-      img->width = width_;
-      img->height = height_;
-      img->encoding = image_encoding_;
-      img->is_bigendian = false;
-      img->data.resize(expected_frame_size);
-
-      // Copy only the data we received
-      // Since we're publishing shared pointers, we need to copy the image so
-      // we can free the buffer allocated by gstreamer
-      img->step = width_ * sensor_msgs::image_encodings::numChannels(image_encoding_);
-
-      std::copy(
-        buf_data,
-        (buf_data) + (buf_size),
-        img->data.begin());
-
-      // Publish the image/info
-      camera_pub_.publish(img, cinfo);
-    }
-
     // Release the buffer
-    if (buf) {
-      gst_memory_unmap(memory, &info);
-      gst_memory_unref(memory);
-      gst_sample_unref(sample);
+      if (bufs[camera_name]) {
+        gst_memory_unmap(memories[camera_name], &infos[camera_name]);
+        gst_memory_unref(memories[camera_name]);
+        gst_sample_unref(samples[camera_name]);
+      }
     }
   }
 }
@@ -420,11 +669,15 @@ void GSCam::cleanup_stream()
 {
   // Clean up
   RCLCPP_INFO(get_logger(), "Stopping gstreamer pipeline...");
-  if (pipeline_) {
-    gst_element_set_state(pipeline_, GST_STATE_NULL);
-    gst_object_unref(pipeline_);
-    pipeline_ = NULL;
-  }
+
+    for(const auto& camera_name : camera_names)
+    {
+      if (pipelines[camera_name]) {
+        gst_element_set_state(pipelines[camera_name], GST_STATE_NULL);
+        gst_object_unref(pipelines[camera_name]);
+        pipelines[camera_name] = nullptr;
+      }
+    }
 }
 
 void GSCam::run()
