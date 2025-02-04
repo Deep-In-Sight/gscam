@@ -64,7 +64,7 @@ private:
   bool use_gst_timestamps_;
 
   // Camera publisher configuration
-  std::string frame_id_;
+  std::map<std::string, std::string> frame_ids;
   std::map<std::string, int> widths;
   std::map<std::string, int> heights;
   std::string image_encoding_;
@@ -85,7 +85,7 @@ private:
   std::thread pipeline_thread_;
   std::atomic<bool> stop_signal_;
 
-  std::vector<std::string> camera_names = {"left", "middle", "right"};
+  std::vector<std::string> frame_id_lists;
 };
 
 }  // namespace gscam
