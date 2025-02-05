@@ -351,7 +351,7 @@ void GSCam::publish_stream()
       samples[camera] = gst_app_sink_pull_sample(GST_APP_SINK(sinks[camera]));
       if (!samples[camera]) {
         RCLCPP_ERROR(get_logger(), "Could not get %s gstreamer sample.", camera.c_str());
-        break;
+        return;
       }
     }
 
@@ -364,7 +364,7 @@ void GSCam::publish_stream()
       if(!gst_memory_map(memories[camera], &infos[camera], GST_MAP_READ))
       {
         RCLCPP_ERROR(get_logger(), "Could not map %s memory.", camera.c_str());
-        break;
+        return;
       }
       buf_sizes[camera] = infos[camera].size;
       buf_datas[camera] = infos[camera].data;
@@ -390,7 +390,7 @@ void GSCam::publish_stream()
       // Stop on end of stream
       if (!bufs[camera]) {
         RCLCPP_INFO(get_logger(), "%s stream ended.", camera.c_str());
-        break;
+        return;
       }
 
       // RCLCPP_DEBUG(get_logger(), "Got data.");
