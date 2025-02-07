@@ -24,64 +24,51 @@ from launch_ros.descriptions import ComposableNode
 
 
 def generate_launch_description():
-    gscam_config = 'videotestsrc is-live=true ! video/x-raw ! videoconvert'
-    camera_info_url = 'package://gscam/examples/uncalibrated_parameters.ini'
-
-    return LaunchDescription([ComposableNodeContainer(
-        name='gscam_container',
-        namespace='',
-        package='rclcpp_components',
-        executable='component_container',
-        composable_node_descriptions=[
-
-            # GSCam driver
-            ComposableNode(
-                package='gscam',
-                plugin='gscam::GSCam',
-                name='gscam_node',
-                parameters=[{
-                    'gscam_config': gscam_config,
-                    'camera_info_url': camera_info_url,
-                }],
-                # Future-proof: enable zero-copy IPC when it is available
-                # https://github.com/ros-perception/image_common/issues/212
-                extra_arguments=[{'use_intra_process_comms': True}],
-            ),
-
-            # Bayer color decoding
-            ComposableNode(
-                package='image_proc',
-                plugin='image_proc::DebayerNode',
-                name='debayer_node',
-                namespace='camera',
-                extra_arguments=[{'use_intra_process_comms': True}],
-            ),
-
-            # Mono rectification
-            ComposableNode(
-                package='image_proc',
-                plugin='image_proc::RectifyNode',
-                name='mono_rectify_node',
-                namespace='camera',
-                extra_arguments=[{'use_intra_process_comms': True}],
-                remappings=[
-                    ('image', 'image_mono'),
-                    ('image_rect', 'image_rect_mono'),
-                ],
-            ),
-
-            # Color rectification
-            ComposableNode(
-                package='image_proc',
-                plugin='image_proc::RectifyNode',
-                name='color_rectify_node',
-                namespace='camera',
-                extra_arguments=[{'use_intra_process_comms': True}],
-                remappings=[
-                    ('image', 'image_color'),
-                    ('image_rect', 'image_rect_color'),
-                ],
-            ),
-        ],
-        output='screen',
-    )])
+    return LaunchDescription([
+        ComposableNodeContainer(
+            name='camera_container',
+            namespace='',
+            package='rclcpp_components',
+            executable='component_container_mt',  # 멀티스레드 컨테이너 (또는 component_container 사용)
+            composable_node_descriptions=[
+                # 카메라 0 인스턴스
+                ComposableNode(
+                    package='gscam',      # gscam 패키지 이름
+                    plugin='gscam::GSCam',
+                    name='camera0',
+                    parameters=[{
+                        'gscam_config': "nvarguscamerasrc sensor-id=0 sensor-mode=0 ! video/x-raw(memory:NVMM),width=2432,height=2048,format=NV12 ! nvvidconv ! video/x-raw, width=720,height=606,format=NV12 ! videoconvert",
+                        'camera_name': "camera0",
+                        'camera_info_url': "package://gscam/examples/uncalibrated_parameters.ini",
+                        'frame_id': "camera0_frame"
+                    }]
+                ),
+                # 카메라 1 인스턴스
+                ComposableNode(
+                    package='gscam',
+                    plugin='gscam::GSCam',
+                    name='camera1',
+                    parameters=[{
+                        'gscam_config': "nvarguscamerasrc sensor-id=2 sensor-mode=0 ! video/x-raw(memory:NVMM),width=2432,height=2048,format=NV12 ! nvvidconv ! video/x-raw, width=720,height=606,format=NV12 ! videoconvert",
+                        'camera_name': "camera1",
+                        'camera_info_url': "package://gscam/examples/uncalibrated_parameters.ini",
+                        'frame_id': "camera1_frame"
+                    }]
+                ),
+                # 카메라 1 인스턴스
+                ComposableNode(
+                    package='gscam',
+                    plugin='gscam::GSCam',
+                    name='camera2',
+                    parameters=[{
+                        'gscam_config': "nvarguscamerasrc sensor-id=1 sensor-mode=0 ! video/x-raw(memory:NVMM),width=2432,height=2048,format=NV12 ! nvvidconv ! video/x-raw, width=720,height=606,format=NV12 ! videoconvert",
+                        'camera_name': "camera2",
+                        'camera_info_url': "package://gscam/examples/uncalibrated_parameters.ini",
+                        'frame_id': "camera2_frame"
+                    }]
+                )
+                # 추가 카메라 인스턴스도 필요에 따라 추가
+            ],
+            output='screen'
+        )
+    ])

@@ -40,16 +40,19 @@ class GSCam : public rclcpp::Node
 {
 public:
   explicit GSCam(const rclcpp::NodeOptions & options);
-  ~GSCam();
+  ~GSCam() override;
 
 private:
   bool configure();
   bool init_stream();
-  void publish_stream();
+  void start_pipeline();
   void cleanup_stream();
-
-  void run();
-
+  GstFlowReturn on_new_sample(GstAppSink * appsink);
+  
+  static GstFlowReturn gst_new_sample_cb(GstAppSink * appsink, gpointer user_data);
+  static GstFlowReturn gst_new_preroll_cb(GstAppSink * appsink, gpointer user_data);
+  static void gst_eos_cb(GstAppSink * appsink, gpointer user_data);
+  
   // General gstreamer configuration
   std::string gsconfig_;
 
@@ -57,6 +60,10 @@ private:
   GstElement * pipeline_;
   GstElement * sink_;
 
+  camera_info_manager::CameraInfoManager camera_info_manager_;
+  // Poll gstreamer on a separate thread
+  std::thread pipeline_thread_;
+  bool stop_signal_;
   // Appsink configuration
   bool sync_sink_;
   bool preroll_;
@@ -73,16 +80,12 @@ private:
 
   // ROS Inteface
   // Calibration between ros::Time and gst timestamps
-  uint64_t time_offset_;
-  camera_info_manager::CameraInfoManager camera_info_manager_;
+  int64_t time_offset_;
   image_transport::CameraPublisher camera_pub_;
   // Case of a jpeg only publisher
   rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr jpeg_pub_;
   rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr cinfo_pub_;
 
-  // Poll gstreamer on a separate thread
-  std::thread pipeline_thread_;
-  std::atomic<bool> stop_signal_;
 };
 
 }  // namespace gscam
